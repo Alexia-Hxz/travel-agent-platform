@@ -1,4 +1,4 @@
-# 织程 · AI 旅行规划平台
+# 旅迹 AI · 智能旅行规划平台
 
 **说出想去哪儿，它去找、去算、去排；每一处改动，都由你点头才生效。**
 
@@ -65,14 +65,15 @@
 
 ## 快速开始
 
+> 前置：Python 3.11+、[uv](https://docs.astral.sh/uv/)、Node.js 20+；Docker 仅在使用 Compose 时需要。
+
 ### 1. 后端
 
 ```bash
 cd backend
-python -m venv .venv && .venv\Scripts\activate      # Windows
-pip install -r requirements.txt
-copy .env.example .env                              # 填入自己的 Key
-uvicorn app.main:app --host 127.0.0.1 --port 8001
+uv sync                                     # 按 uv.lock 安装依赖到 .venv-ocr
+Copy-Item .env.example .env                 # 填入自己的 Key
+uv run uvicorn app.main:app --reload --port 8001
 ```
 
 接口文档：http://127.0.0.1:8001/docs
@@ -98,6 +99,9 @@ docker compose up --build
 | 变量 | 说明 |
 | --- | --- |
 | `DASHSCOPE_API_KEY` | 模型服务 Key（必填） |
+| `PEXELS_API_KEY` | 图片服务 Key（可选；不填则地点无配图） |
+| `PLANNING_MODEL_NAME` | 可选，规划模型名（默认 qwen3.7-plus） |
+| `CATEGORY_MATERIAL_CACHE_TTL_HOURS` | 可选，检索素材缓存有效期（默认 24 小时） |
 | `TRAVEL_AGENT_DB_PATH` | 可选，自定义 SQLite 数据库路径（默认为 `backend/travel_agent.db`） |
 | `AUTH_SECRET_KEY` | 可选，JWT 签名密钥；生产环境务必设置 |
 
