@@ -130,13 +130,17 @@ travel-agent-platform/
 
 ## 截图
 
-<!-- 截图待上传：把 4 张 PNG 放到 docs/screenshots/ 后取消下面的注释即可 -->
-<!--
 ![登录](docs/screenshots/01-login.png)
+
+**登录** — JWT 认证入口。
+
 ![AI 发现](docs/screenshots/02-discovery.png)
+
+**AI 发现** — 联网检索后的结构化推荐卡：图片、价格、营业时间、地址与推荐理由，勾选后可加入行程。
+
 ![行程详情](docs/screenshots/03-trip-detail.png)
-![Copilot 调整](docs/screenshots/04-copilot.png)
--->
+
+**行程详情** — 逐日行程、预算概览与地点示意图。
 
 ## 说明
 
