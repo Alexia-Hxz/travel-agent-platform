@@ -1,0 +1,30 @@
+services:
+  backend:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./data:/app/data
+      - ./backend/travel_agent.db:/app/travel_agent.db
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/v1/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  frontend:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"

@@ -1,0 +1,35 @@
+# Python
+.venv/
+.venv-ocr/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Node.js
+frontend/node_modules/
+frontend/dist/
+
+# Local application data and secrets
+.env
+.env.*
+!*.example
+data/uploads/*
+!data/uploads/.gitkeep
+data/vector_store/*
+!data/vector_store/.gitkeep
+data/paddleocr/
+data/paddlex/
+backend/travel_agent.db
+backend/data/category_material_cache.sqlite3*
+backend/app/static/place_images/cache/
+
+# Editors and OS files
+.vscode/settings.json
+.idea/
+Thumbs.db
+.DS_Store
+
+# Test-suite leftovers
+backend/travel-agent-tests-*/
+backend/pytest-of-*/

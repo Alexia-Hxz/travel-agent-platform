@@ -1,0 +1,30 @@
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+ENV TRAVEL_AGENT_PROJECT_ROOT=/app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "uv>=0.6,<1.0"
+
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen --no-dev
+# Use charset-normalizer's portable Python implementation.  Some downloaded
+# native wheels fail during zlib initialisation in the slim runtime and prevent
+# requests (and therefore PaddleOCR) from importing.
+RUN find /app/.venv/lib/python3.11/site-packages/charset_normalizer -name '*.so' -delete
+
+COPY backend/sitecustomize.py /app/.venv/lib/python3.11/site-packages/sitecustomize.py
+COPY backend/app ./app
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=10 --start-period=30s \
+  CMD python -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/v1/health')"
+
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
