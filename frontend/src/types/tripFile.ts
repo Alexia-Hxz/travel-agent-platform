@@ -11,5 +11,10 @@ export interface TripFile {
   parsed_result: Record<string, string[]> | null
   parse_error: string | null
   parsed_at: string | null
+  /** Whether this document can be found by search, and why not when it cannot. */
+  index_status: 'pending' | 'indexed' | 'skipped' | 'failed'
+  index_error: string | null
+  indexed_chunks: number
+  indexed_at: string | null
   created_at: string
 }

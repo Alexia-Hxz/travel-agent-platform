@@ -16,8 +16,10 @@ frontend/dist/
 !*.example
 data/uploads/*
 !data/uploads/.gitkeep
-data/vector_store/*
-!data/vector_store/.gitkeep
+# The ChromaDB collection holding embedded chunks of uploaded documents. It is derived
+# data: it can always be rebuilt from data/uploads via the 重建索引 action.
+data/chroma/*
+!data/chroma/.gitkeep
 data/paddleocr/
 data/paddlex/
 backend/travel_agent.db
@@ -33,3 +35,4 @@ Thumbs.db
 # Test-suite leftovers
 backend/travel-agent-tests-*/
 backend/pytest-of-*/
+backend/vecprobe_*/

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.trip_file import TripFile
+from app.services.vector_service import delete_file_chunks
 
 
 PROJECT_ROOT = Path(os.getenv("TRAVEL_AGENT_PROJECT_ROOT", Path(__file__).resolve().parents[3])).resolve()
@@ -115,6 +116,9 @@ def resolve_file_path(trip_file: TripFile) -> Path:
 
 
 def delete_trip_file(session: Session, trip_file: TripFile) -> None:
+    # The vectors go first, and a failure is allowed to abort the whole delete: the
+    # alternative is a file the traveller removed whose text still answers searches.
+    delete_file_chunks(trip_file.id)
     resolve_file_path(trip_file).unlink(missing_ok=True)
     session.delete(trip_file)
     session.commit()
@@ -122,6 +126,7 @@ def delete_trip_file(session: Session, trip_file: TripFile) -> None:
 
 def delete_files_for_trip(session: Session, trip_id: int) -> None:
     for trip_file in list_trip_files(session, trip_id):
+        delete_file_chunks(trip_file.id)
         resolve_file_path(trip_file).unlink(missing_ok=True)
         session.delete(trip_file)
     trip_directory = UPLOADS_DIRECTORY / str(trip_id)

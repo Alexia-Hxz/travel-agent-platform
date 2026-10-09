@@ -8,6 +8,10 @@ class PlannerState(TypedDict, total=False):
     query: str
     include_web: bool
     web_results: list[dict[str, Any]]
+    # Material retrieved from the traveller's own uploaded documents (booked hotels,
+    # tickets, confirmations), with its source kept alongside the excerpt so the model
+    # can attribute a statement instead of asserting it.
+    traveler_documents: list[dict[str, Any]]
     route_context: dict[str, str] | None
     final_summary: str
     conflicts: list[Any]
@@ -35,6 +39,9 @@ class AdjustmentState(TypedDict, total=False):
     instruction: str
     include_web: bool
     web_results: list[dict[str, Any]]
+    # Retrieved from the traveller's uploaded documents, so an instruction about a
+    # booked hotel or a ticket can be answered from the actual order.
+    traveler_documents: list[dict[str, Any]]
     # Operations the editor built by hand (delete / retime / add). When non-empty they
     # replace the model call entirely.
     requested_operations: list[Any]

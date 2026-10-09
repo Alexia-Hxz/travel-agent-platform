@@ -246,7 +246,11 @@ def _route_search_query(context: dict[str, str]) -> str:
 
 def _load_context(state: PlannerState) -> PlannerState:
     events = list(state.get("events", []))
-    events.append({"tool": "context_loader", "status": "completed", "message": "已加载旅行项目、收藏地点和每日行程。"})
+    documents = state.get("traveler_documents") or []
+    message = "已加载旅行项目、收藏地点和每日行程。"
+    if documents:
+        message += f"并载入 {len(documents)} 段来自旅客上传资料的依据。"
+    events.append({"tool": "context_loader", "status": "completed", "message": message})
     return {**state, "events": events}
 
 
@@ -683,6 +687,10 @@ def _generate_final_summary(state: PlannerState) -> PlannerState:
         # Material handed over by the planning and adjustment panels.
         "selected_recommendations": state.get("selected_recommendations", []),
         "adjustment_summary": state.get("adjustment_summary"),
+        # The traveller's own orders, tickets and confirmations. Without them the written
+        # plan could contradict a hotel the traveller has already paid for, because every
+        # other input here comes from search.
+        "traveler_documents": state.get("traveler_documents", []),
     }
     final_summary, result_status = generate_final_summary(summary_context)
     events = list(state.get("events", []))
@@ -739,12 +747,35 @@ def _compose(state: PlannerState, image_slot: dict[str, Any] | None = None) -> P
     # and the written summary have all been done, which is what it was running behind.
     state = _join_place_images(state, image_slot)
     itinerary = state.get("itinerary", [])
+    image_map = state.get("place_image_map", {})
     if not itinerary and state.get("generated_daily_plan"):
-        daily_plan = state["generated_daily_plan"]
+        # This suggested plan was assembled before the picture pass finished, so its entries
+        # still carry only whatever each recommendation had at that moment -- usually
+        # nothing, because the pass runs in parallel precisely so it does not delay the
+        # plan. The saved-itinerary branch below merges the resolved photos by place name;
+        # without doing the same here, a plan built from suggestions came back with no
+        # photo on any day entry while its recommendation cards all had one.
+        daily_plan = [
+            {
+                **day,
+                "items": [
+                    {
+                        **item,
+                        "image_url": (image_map.get(item.get("place_name")) or {}).get("image_url")
+                        or item.get("image_url"),
+                        "fallback_image_url": (image_map.get(item.get("place_name")) or {}).get(
+                            "fallback_image_url"
+                        )
+                        or item.get("fallback_image_url"),
+                    }
+                    for item in day.get("items", [])
+                ],
+            }
+            for day in state["generated_daily_plan"]
+        ]
     else:
         daily_plan = None
     grouped: dict[str, list[dict[str, Any]]] = {}
-    image_map = state.get("place_image_map", {})
     for item in itinerary:
         images = image_map.get(item["place_name"]) or {}
         grouped.setdefault(item["date"], []).append(

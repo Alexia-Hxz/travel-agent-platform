@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { Delete, Download, MagicStick, UploadFilled, View } from '@element-plus/icons-vue'
+import { Delete, Download, MagicStick, Refresh, Search, UploadFilled, View } from '@element-plus/icons-vue'
 import type { UploadRequestOptions } from 'element-plus'
 import { onMounted, reactive, ref, watch } from 'vue'
 import WorkspaceDrawer from '@/components/WorkspaceDrawer.vue'
 
 import { confirmVisionAnalysis, deleteTripFile, downloadTripFile, listTripFiles, parseTripFile, previewVisionAnalysis, uploadTripFile } from '@/api/files'
+import { getKnowledgeStatus, rebuildKnowledgeIndex, searchKnowledge } from '@/api/knowledge'
 import type { TripFile } from '@/types/tripFile'
+import type { KnowledgeSearchResult, KnowledgeStatus } from '@/types/knowledge'
 import type { VisionItinerarySuggestion, VisionPlaceSuggestion, VisionPreview } from '@/types/vision'
 import CollapsiblePanel from '@/components/CollapsiblePanel.vue'
 import { defaultOpenForCount } from '@/composables/panelState'
@@ -31,6 +33,64 @@ const saveItinerary = ref(false)
 const placeDraft = reactive<VisionPlaceSuggestion>({ name: '', type: 'attraction', address: '', latitude: null, longitude: null, image_url: null, rating: null, price_level: null, opening_hours: null, source_url: null })
 const itineraryDraft = reactive<VisionItinerarySuggestion>({ date: '', start_time: '09:00', end_time: '10:00', note: null })
 const maximumFileSize = 10 * 1024 * 1024
+// The document index: what is searchable, and a way to ask it a question directly so that
+// retrieval is visible rather than only implied by the assistant's wording.
+const indexStatus = ref<KnowledgeStatus | null>(null)
+const rebuildLoading = ref(false)
+const rebuildMessage = ref('')
+const searchQuery = ref('')
+const searchLoading = ref(false)
+const searchResult = ref<KnowledgeSearchResult | null>(null)
+
+async function loadIndexStatus(): Promise<void> {
+  try {
+    indexStatus.value = await getKnowledgeStatus(props.tripId)
+  } catch {
+    // A trip whose index cannot be read is not an error worth an alert: the files below
+    // still list, parse and download, and the search box reports its own failure.
+    indexStatus.value = null
+  }
+}
+
+async function rebuildIndex(): Promise<void> {
+  rebuildLoading.value = true
+  errorMessage.value = ''
+  rebuildMessage.value = ''
+  try {
+    const result = await rebuildKnowledgeIndex(props.tripId)
+    const parts = [`已重建索引：${result.indexed_files} 份资料、${result.indexed_chunks} 段可检索`]
+    if (result.skipped_files > 0) parts.push(`${result.skipped_files} 份因文本过少被跳过`)
+    if (result.failed_files > 0) parts.push(`${result.failed_files} 份失败`)
+    rebuildMessage.value = `${parts.join('；')}。`
+    await Promise.all([loadIndexStatus(), loadFiles()])
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '重建索引失败 / Rebuild failed。'
+  } finally {
+    rebuildLoading.value = false
+  }
+}
+
+async function runSearch(): Promise<void> {
+  const query = searchQuery.value.trim()
+  if (!query) return
+  searchLoading.value = true
+  errorMessage.value = ''
+  searchResult.value = null
+  try {
+    searchResult.value = await searchKnowledge(props.tripId, query)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '资料检索失败 / Search failed。'
+  } finally {
+    searchLoading.value = false
+  }
+}
+
+function indexLabel(file: TripFile): string {
+  if (file.index_status === 'indexed') return `已索引 ${file.indexed_chunks} 段`
+  if (file.index_status === 'skipped') return '未建立索引（可检索文本过少）'
+  if (file.index_status === 'failed') return '索引失败'
+  return '尚未索引'
+}
 
 async function loadFiles(): Promise<void> {
   loading.value = true
@@ -91,6 +151,8 @@ async function removeFile(fileId: number): Promise<void> {
   try {
     await deleteTripFile(props.tripId, fileId)
     files.value = files.value.filter((file) => file.id !== fileId)
+    // Deleting the file also removes its vectors; the summary must not keep counting them.
+    await loadIndexStatus()
   } catch {
     errorMessage.value = '删除文件失败 / Unable to delete this file。'
   }
@@ -102,6 +164,8 @@ async function parseFile(file: TripFile): Promise<void> {
     files.value = files.value.map((item) => (item.id === parsed.id ? parsed : item))
     resultFile.value = parsed
     resultVisible.value = true
+    // Parsing indexes the document, so the summary above the list is now out of date.
+    await loadIndexStatus()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '解析文件失败 / Unable to parse this file。'
   }
@@ -161,7 +225,10 @@ function formatFileSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MiB`
 }
 
-onMounted(loadFiles)
+onMounted(() => {
+  loadFiles()
+  loadIndexStatus()
+})
 </script>
 
 <template>
@@ -179,6 +246,7 @@ onMounted(loadFiles)
       :auto-open-token="files.length"
     >
       <template #actions>
+        <el-button :icon="Refresh" :loading="rebuildLoading" @click="rebuildIndex">重建索引 / Rebuild index</el-button>
         <el-upload
           :show-file-list="false"
           :http-request="uploadFile"
@@ -192,6 +260,37 @@ onMounted(loadFiles)
         <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
       </template>
 
+      <p v-if="indexStatus" class="index-summary">
+        <template v-if="indexStatus.available">
+          向量检索 / Semantic index：{{ indexStatus.indexed_files }} 份资料 · {{ indexStatus.indexed_chunks }} 段可检索 ·
+          {{ indexStatus.embedding_model }}（{{ indexStatus.embedding_dim }} 维 · {{ indexStatus.backend }}）
+        </template>
+        <template v-else>向量检索 / Semantic index：不可用</template>
+      </p>
+      <p v-if="indexStatus && !indexStatus.available" class="error-message" role="alert">
+        向量库不可用，上传的资料暂时无法被检索到：{{ indexStatus.error }}
+      </p>
+      <p v-if="rebuildMessage" class="index-summary">{{ rebuildMessage }}</p>
+
+      <div class="knowledge-search">
+        <el-input
+          v-model="searchQuery"
+          placeholder="直接检索已上传的资料 / Search your uploaded documents"
+          clearable
+          @keyup.enter="runSearch"
+        />
+        <el-button type="primary" :icon="Search" :loading="searchLoading" @click="runSearch">检索 / Search</el-button>
+      </div>
+      <div v-if="searchResult" class="knowledge-results">
+        <p v-if="searchResult.status !== 'ok'" class="empty-state">{{ searchResult.reason ?? '没有找到相关资料片段。' }}</p>
+        <article v-for="chunk in searchResult.chunks" :key="chunk.chunk_id" class="knowledge-chunk">
+          <p class="knowledge-source">
+            {{ chunk.source_label }} · 第 {{ chunk.chunk_index + 1 }} 段 · 相似度 {{ chunk.similarity.toFixed(3) }}
+          </p>
+          <pre>{{ chunk.text }}</pre>
+        </article>
+      </div>
+
       <p v-if="loading" class="empty-state">正在加载文件 / Loading files...</p>
       <p v-else-if="files.length === 0" class="empty-state">还没有上传文件 / No files have been uploaded.</p>
       <div v-else class="file-list">
@@ -200,6 +299,9 @@ onMounted(loadFiles)
             <h3>{{ file.original_filename }}</h3>
             <p>{{ file.content_type }} · {{ formatFileSize(file.file_size) }}</p>
             <p>解析状态 / Parse status：{{ file.parse_status }}</p>
+            <p>
+              索引状态 / Index：{{ indexLabel(file) }}<span v-if="file.index_error"> · {{ file.index_error }}</span>
+            </p>
           </div>
           <div class="file-actions">
             <el-button
@@ -259,4 +361,10 @@ h2 { margin-bottom: 0; font-size: 22px; }
 .file-actions a { display: inline-flex; padding: 8px; color: #246bfd; font-size: 18px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f1f4f1; } dt { font-weight: 700; } dd { margin: 4px 0 10px; }
 .vision-summary { margin-bottom: 6px; font-weight: 600; } .vision-meta, .vision-text { color: #6b7280; font-size: 14px; } .vision-form { display: grid; gap: 12px; margin: 12px 0 18px; } .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .form-grid :deep(.el-date-editor), .form-grid :deep(.el-select) { width: 100%; }
+.index-summary { margin-bottom: 12px; color: #4b5563; font-size: 14px; }
+.knowledge-search { display: flex; gap: 8px; margin: 4px 0 16px; }
+.knowledge-results { margin-bottom: 16px; }
+.knowledge-chunk { padding: 10px 0; border-bottom: 1px solid #e7e9ee; }
+.knowledge-source { margin-bottom: 6px; color: #246bfd; font-size: 13px; }
+.knowledge-chunk pre { margin-bottom: 0; }
 </style>

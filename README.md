@@ -23,6 +23,7 @@
 - **行程与收藏管理**：景点 / 酒店 / 餐厅 / 机场 / 车站收藏，逐日编排与拖拽调整。
 - **多源信息聚合**：地点配图、实时天气、实时价格检索与预算一致性校验、示意图与 Markdown 导出。
 - **文件解析**：上传机票、酒店订单、菜单或攻略截图，OCR 解析后人工确认保存。
+- **资料向量检索**：解析出的文本按行切分并向量化存入 ChromaDB，可语义检索（“我订的酒店什么时候入住”会命中订单原文，并显示来源文件名与相似度）；Copilot 与规划总结会自动引用命中的片段。
 
 ## 架构
 
@@ -37,6 +38,8 @@
         │
         ├── 调整器（adjuster）：解析指令 → 生成 operations 草案 → 用户确认 → 落库
         │
+        ├── 资料向量库（ChromaDB）：上传资料 → 按行切分 → text-embedding-v4 → 按旅行项目过滤检索
+        │
         └── 单日规划器（day_planner）：类别配额 + 时间槽分配 + 跨天去重 + 素材不足时二次加宽检索
 ```
 
@@ -49,6 +52,7 @@
 | 后端 | Python 3.11、FastAPI、SQLAlchemy、SQLite、Pydantic |
 | Agent | LangChain / LangGraph（规划器、调整器、单日规划器），DashScope 兼容模式（通义千问） |
 | 检索与外部服务 | 联网搜索素材、图片服务、Open-Meteo 天气、OCR 文件解析 |
+| 向量检索 | ChromaDB（本地持久化于 `data/chroma`）+ DashScope `text-embedding-v4`（1024 维，余弦距离） |
 | 前端 | Vue 3 + TypeScript + Vite + Element Plus |
 | 工程化 | pytest（后端）、Vitest（前端）、vue-tsc 类型检查、Docker Compose |
 
@@ -58,8 +62,9 @@
 | --- | --- |
 | 整趟规划耗时 | 314s → ~195s（引入素材缓存与并行抽取后 **−37.6%**） |
 | 单日极简规划 | ~21s（同城命中缓存） |
-| 后端测试 | 110+ 条 pytest 用例通过 |
-| 前端测试 | 140 条 Vitest 用例通过，`vue-tsc` 零错误 |
+| 后端测试 | **652 条 pytest 用例全部通过**（含 22 条向量检索新增用例） |
+| 前端测试 | 143 条 Vitest 用例通过，`vue-tsc` 零错误 |
+| 资料向量检索 | 12 问标注集 **Recall@5 = 12/12、top-1 = 12/12**；同义改写相似度 0.525 vs 无关问题 0.285 |
 
 > 数据为本机开发环境实测，随网络与模型响应波动。
 
@@ -77,6 +82,7 @@ uv run uvicorn app.main:app --reload --port 8001
 ```
 
 接口文档：http://127.0.0.1:8001/docs
+后端健康检查：http://127.0.0.1:8001/api/v1/health
 
 ### 2. 前端
 
@@ -103,6 +109,8 @@ docker compose up --build
 | `PLANNING_MODEL_NAME` | 可选，规划模型名（默认 qwen3.7-plus） |
 | `CATEGORY_MATERIAL_CACHE_TTL_HOURS` | 可选，检索素材缓存有效期（默认 24 小时） |
 | `TRAVEL_AGENT_DB_PATH` | 可选，自定义 SQLite 数据库路径（默认为 `backend/travel_agent.db`） |
+| `EMBEDDING_MODEL_NAME` | 可选，向量化模型名（默认 `text-embedding-v4`；更换后需重建资料索引） |
+| `TRAVEL_AGENT_CHROMA_PATH` | 可选，向量库目录（默认为 `data/chroma`） |
 | `AUTH_SECRET_KEY` | 可选，JWT 签名密钥；生产环境务必设置 |
 
 ## 项目结构

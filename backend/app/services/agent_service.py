@@ -7,6 +7,7 @@ from app.models.itinerary_item import ItineraryItem
 from app.models.place import Place
 from app.models.trip import Trip
 from app.services.itinerary_service import list_itinerary_items, list_places
+from app.services.knowledge_context import retrieve_traveler_documents
 from app.services.photo_cache import cache_plan_photos
 
 
@@ -87,6 +88,9 @@ def build_plan_state(
     traveler_profile["total_adults"] = trip.adult_male_count + trip.adult_female_count
     traveler_profile["total_children"] = trip.child_male_count + trip.child_female_count
     traveler_profile["total_people"] = traveler_profile["total_adults"] + traveler_profile["total_children"]
+    # Retrieved here rather than inside the graph: this function is the one place that
+    # still holds a session, and the plan's written summary is grounded on the result.
+    traveler_documents, document_event = retrieve_traveler_documents(trip.id, query)
     state = {
         "trip": {
             "id": trip.id,
@@ -101,7 +105,8 @@ def build_plan_state(
         "include_web": include_web,
         "selected_recommendations": selected_recommendations or [],
         "adjustment_summary": adjustment_summary,
-        "events": [],
+        "traveler_documents": traveler_documents,
+        "events": [document_event],
         "traveler_profile": traveler_profile,
     }
     if progress_callback is not None:

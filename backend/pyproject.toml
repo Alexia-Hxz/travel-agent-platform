@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Backend for the multimodal travel planning platform."
 requires-python = ">=3.11"
 dependencies = [
+  "chromadb>=0.4.24,<0.5",
   "fastapi>=0.115,<1.0",
   "langgraph>=0.2,<1.0",
   "openai>=1.0,<2.0",
@@ -11,6 +12,21 @@ dependencies = [
   "pypdf>=5.0,<6.0",
   "paddleocr==2.9.1",
   "paddlepaddle==2.6.2",
+  # Two pins that exist only to protect PaddleOCR, and both are load-bearing:
+  #
+  # protobuf: paddlepaddle 2.6.2 declares `protobuf<=3.20.2` on Windows, and its bundled
+  # *_pb2.py files refuse to import under protobuf 4+ ("Descriptors cannot be created
+  # directly"). chromadb is held below 0.5 for the same reason: chromadb 1.x pulls
+  # onnxruntime and opentelemetry-proto, which require a modern protobuf. Installing
+  # chromadb 1.5.9 here upgraded protobuf to 7.36.2 and broke `import paddle` outright.
+  #
+  # numpy: paddlepaddle declares only `numpy>=1.13` while its native extension is built
+  # against the numpy 1.x ABI. Left free, a resolve picks numpy 2.x and OCR fails at
+  # import time. Neither cap is about this application's own code.
+  "protobuf<=3.20.2; platform_system == 'Windows'",
+  "numpy<2",
+  # chromadb 0.4.x imports posthog for anonymised telemetry. The client is created with
+  # telemetry disabled, so nothing is ever sent, but the import is still required.
   "posthog>=2.4,<3.0",
   "python-dotenv>=1.0,<2.0",
   "setuptools>=65",

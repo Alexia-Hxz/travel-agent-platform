@@ -23,6 +23,7 @@ from app.models.itinerary_adjustment import ItineraryAdjustment
 from app.schemas.adjustment import AdjustmentOperation
 from app.services.adjustment_service import create_pending_adjustment, validate_operations
 from app.services.itinerary_service import list_itinerary_items, list_places
+from app.services.knowledge_context import retrieve_traveler_documents
 
 
 # The draft mode the day button sends. Named here so the schema, the route and this service
@@ -325,6 +326,10 @@ def create_adjustment_draft(
         # here rather than surfacing as a failure when they press apply. Model-proposed
         # operations are not checked here -- the user picks between those individually.
         validate_operations(session, trip, operations)
+    # The traveller's own orders and tickets, retrieved against this instruction. Done
+    # here because this function is the one that holds the session; the adjustment graph
+    # runs on its own thread.
+    traveler_documents, document_event = retrieve_traveler_documents(trip.id, instruction)
     state = {
         "trip": {
             "id": trip.id,
@@ -337,7 +342,8 @@ def create_adjustment_draft(
         "itinerary": [_item_to_state(item) for item in list_itinerary_items(session, trip.id)],
         "instruction": instruction,
         "include_web": include_web,
-        "events": [],
+        "traveler_documents": traveler_documents,
+        "events": [document_event],
         "traveler_profile": traveler_profile,
         # Operations built by the editor itself, so the model is not asked to guess at a
         # change the user already spelled out by clicking.

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.trip_file import TripFile
 from app.services.file_service import resolve_file_path
+from app.services.vector_service import index_trip_file
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -83,4 +84,10 @@ def parse_trip_file(session: Session, trip_file: TripFile) -> TripFile:
         session.commit()
         raise HTTPException(status_code=422, detail=trip_file.parse_error) from error
     session.commit(); session.refresh(trip_file)
+    # Parsing produces text; indexing is what makes that text retrievable. Doing it here
+    # means an upload becomes searchable without the traveller having to press anything
+    # else, and index_trip_file never raises -- a vector-store problem is recorded on the
+    # file row so the interface can show it.
+    index_trip_file(session, trip_file)
+    session.refresh(trip_file)
     return trip_file

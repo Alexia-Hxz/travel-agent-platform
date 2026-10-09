@@ -178,7 +178,11 @@ def _emergency_operations(state: AdjustmentState) -> list[AdjustmentOperation]:
 
 def _load_context(state: AdjustmentState) -> AdjustmentState:
     events = list(state.get("events", []))
-    events.append({"tool": "context_loader", "status": "completed", "message": "已加载旅行项目、收藏地点和当前行程。"})
+    documents = state.get("traveler_documents") or []
+    message = "已加载旅行项目、收藏地点和当前行程。"
+    if documents:
+        message += f"并载入 {len(documents)} 段来自旅客上传资料的依据。"
+    events.append({"tool": "context_loader", "status": "completed", "message": message})
     trip = state["trip"]
     weather = state.get("weather") or get_weather_forecast(trip["destination"], trip["start_date"], trip["end_date"])
     events.append({"tool": "weather_forecast", "status": weather.get("status", "fallback"), "message": "已查询旅行日期天气预报。"})
@@ -367,6 +371,9 @@ def _model_operations(state: AdjustmentState) -> list[AdjustmentOperation]:
         "web_results": state.get("web_results", []),
         "traveler_profile": state.get("traveler_profile", {}),
         "weather": state.get("weather", {}),
+        # The traveller's own uploaded orders, tickets and confirmations, retrieved for
+        # this instruction. Each entry carries the file it came from.
+        "traveler_documents": state.get("traveler_documents", []),
     }
     response = client.chat.completions.create(
         model=MODEL_NAME,
@@ -386,7 +393,12 @@ def _model_operations(state: AdjustmentState) -> list[AdjustmentOperation]:
                     "name, category (as type), estimated_cost and quantity into the place object rather than inventing a price. "
                     "Use the current itinerary as the only baseline and preserve unaffected dates and time slots. Support replacing multiple requested items in one response; keep each replacement in its original slot unless the user asks to replan. "
                     "If weather, a closure, or transport disruption makes outdoor travel unsafe, remove affected items and create a complete replacement timeline including return-to-hotel transport, indoor or hotel activities, meals or delivery, and estimated costs. "
-                    "Use traveler_profile (adults/children and gender counts) to prefer age-appropriate, accessible activities. Sources are internal context only and must never be copied as a source list into user-facing text."
+                    "Use traveler_profile (adults/children and gender counts) to prefer age-appropriate, accessible activities. "
+                    "traveler_documents holds excerpts of documents the traveller uploaded themselves (hotel orders, tickets, "
+                    "confirmations), each with its source filename. When the request concerns a booked hotel, a flight, a ticket, "
+                    "a price already paid or an order number, answer from those excerpts and name the document you used. Never "
+                    "invent a booking that is not in them, and never contradict one that is. "
+                    "Sources are internal context only and must never be copied as a source list into user-facing text."
                 ),
             },
             {"role": "user", "content": json.dumps(prompt, ensure_ascii=False, default=str)},

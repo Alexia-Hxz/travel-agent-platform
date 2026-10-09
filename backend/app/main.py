@@ -14,9 +14,12 @@ from app.api.v1.endpoints.files import router as files_router
 from app.api.v1.endpoints.agent import router as agent_router
 from app.api.v1.endpoints.adjustments import router as adjustments_router
 from app.api.v1.endpoints.itinerary import router as itinerary_router
+from app.api.v1.endpoints.knowledge import router as knowledge_router
 from app.api.v1.endpoints.images import router as images_router
 from app.api.v1.endpoints.trips import router as trips_router
+from app.core import image_hosts
 from app.db.session import Base, engine
+from app.services import vector_service
 from app.services.auth_service import using_development_secret
 from app.models import (  # noqa: F401 - imports models for SQLAlchemy metadata
     ItineraryAdjustment,
@@ -30,9 +33,26 @@ from app.models import (  # noqa: F401 - imports models for SQLAlchemy metadata
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # First, so nothing later spends its budget on an unreachable photo edge: some
+    # networks resolve the photo CDN to an address that accepts no connection, which
+    # turns every picture into a placeholder without raising anything.
+    image_hosts.install()
     Base.metadata.create_all(bind=engine)
     columns = {column["name"] for column in inspect(engine).get_columns("trip_files")}
-    migrations = {"parse_status": "VARCHAR(20) NOT NULL DEFAULT 'pending'", "parsed_text": "TEXT", "parsed_result": "JSON", "parse_error": "TEXT", "parsed_at": "DATETIME"}
+    migrations = {
+        "parse_status": "VARCHAR(20) NOT NULL DEFAULT 'pending'",
+        "parsed_text": "TEXT",
+        "parsed_result": "JSON",
+        "parse_error": "TEXT",
+        "parsed_at": "DATETIME",
+        # Indexing state is tracked apart from parsing state. A document can parse
+        # perfectly and still be unsearchable -- a scanned page with too little text, or
+        # an unreachable embedding provider -- and only the file row can say which.
+        "index_status": "VARCHAR(20) NOT NULL DEFAULT 'pending'",
+        "index_error": "TEXT",
+        "indexed_chunks": "INTEGER NOT NULL DEFAULT 0",
+        "indexed_at": "DATETIME",
+    }
     with engine.begin() as connection:
         for name, definition in migrations.items():
             if name not in columns:
@@ -55,6 +75,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         if "user_id" not in trip_columns:
             connection.execute(text("ALTER TABLE trips ADD COLUMN user_id INTEGER REFERENCES users(id)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_trips_user_id ON trips (user_id)"))
+    # Opening the collection at startup turns a broken vector store into one clear log
+    # line here, instead of every later search quietly answering "no matching documents".
+    vector_service.warm_up()
     if using_development_secret():
         # Loud on purpose: with the built-in key anyone who reads the source can mint a
         # token for any account. Fine for local development, not for anything else.
@@ -86,6 +109,7 @@ OWNED_TRIP_DEPENDENCY = [Depends(require_owned_trip)]
 app.include_router(itinerary_router, prefix="/api/v1", dependencies=OWNED_TRIP_DEPENDENCY)
 app.include_router(files_router, prefix="/api/v1", dependencies=OWNED_TRIP_DEPENDENCY)
 app.include_router(agent_router, prefix="/api/v1", dependencies=OWNED_TRIP_DEPENDENCY)
+app.include_router(knowledge_router, prefix="/api/v1", dependencies=OWNED_TRIP_DEPENDENCY)
 app.include_router(adjustments_router, prefix="/api/v1", dependencies=OWNED_TRIP_DEPENDENCY)
 # Bundled category placeholders guarantee every recommended place renders an image.
 # The path here must stay in step with place_images.STATIC_IMAGE_PREFIX.

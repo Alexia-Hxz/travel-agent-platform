@@ -377,7 +377,7 @@ def test_a_one_line_price_answer_is_not_thrown_away(monkeypatch) -> None:
 
     monkeypatch.setattr(dashscope_search, "search_available", lambda: True)
     monkeypatch.setattr(
-        dashscope_search, "_ask", lambda prompt, max_tokens=None: ("东京国立博物馆常设展 630 日元。", "stop")
+        dashscope_search, "_ask", lambda prompt, max_tokens=None, timeout=None: ("东京国立博物馆常设展 630 日元。", "stop")
     )
 
     # The planning call still refuses a 15-character answer...
@@ -394,7 +394,7 @@ def test_a_price_lookup_without_a_number_is_no_evidence(monkeypatch) -> None:
     monkeypatch.setattr(
         dashscope_search,
         "_ask",
-        lambda prompt, max_tokens=None: ("抱歉，我无法联网确认这家的具体价格，建议您查看官网。", "stop"),
+        lambda prompt, max_tokens=None, timeout=None: ("抱歉，我无法联网确认这家的具体价格，建议您查看官网。", "stop"),
     )
 
     assert web_search.search_snippets("某餐厅 人均") == []

@@ -1,5 +1,6 @@
 import os
 import tempfile
+import zlib
 from pathlib import Path
 
 # Point the app at a throwaway database BEFORE anything imports app.db.session.
@@ -12,6 +13,10 @@ _TEST_DB_PATH = os.getenv("TRAVEL_AGENT_TEST_DB_PATH") or str(
 )
 os.environ["TRAVEL_AGENT_DB_PATH"] = _TEST_DB_PATH
 os.environ["CATEGORY_MATERIAL_CACHE_PATH"] = str(Path(_TEST_DB_PATH).with_name("category-material.sqlite3"))
+# The vector collection persists to a directory of its own. Without this the suite would
+# write indexed chunks into the real backend/data/chroma, and a search test would then
+# see documents left behind by earlier runs.
+os.environ["TRAVEL_AGENT_CHROMA_PATH"] = str(Path(_TEST_DB_PATH).with_name("chroma"))
 
 # Live web search asks the model to search the internet (`enable_search`), which reaches
 # the real network and takes about twenty seconds per lookup. It is off by default so the
@@ -22,6 +27,7 @@ os.environ["DISABLE_LIVE_WEB_SEARCH"] = "1"
 import pytest
 
 from app.agents.tools import mealdb_images, pexels_images, place_images, recommendations
+from app.services.embedding_service import EMBEDDING_DIM
 
 
 @pytest.fixture(autouse=True)
@@ -73,6 +79,38 @@ def _offline_price_lookups(monkeypatch: pytest.MonkeyPatch):
     themselves, and that patch takes precedence over this default.
     """
     monkeypatch.setattr(recommendations, "search_snippets", lambda query, limit=3, timeout=8.0: [])
+    yield
+
+
+def deterministic_embedding(texts: list[str]) -> list[list[float]]:
+    """A stable bag-of-characters vector, used wherever a test needs embeddings.
+
+    Not semantically meaningful the way the provider's vectors are, but documents that
+    share wording do land closer together, which is enough to assert that retrieval
+    returns the right document. Being deterministic, it also keeps ranking reproducible.
+    """
+    vectors: list[list[float]] = []
+    for text in texts:
+        vector = [0.0] * EMBEDDING_DIM
+        for character in text:
+            vector[zlib.crc32(character.encode("utf-8")) % EMBEDDING_DIM] += 1.0
+        norm = sum(value * value for value in vector) ** 0.5
+        vectors.append([value / norm for value in vector] if norm else vector)
+    return vectors
+
+
+@pytest.fixture(autouse=True)
+def _offline_embeddings(monkeypatch: pytest.MonkeyPatch):
+    """Keep the embedding provider out of the suite entirely.
+
+    Parsing an uploaded file now indexes it, so without this every parse test would reach
+    the real DashScope endpoint: slow, billed, and dependent on a key being present. The
+    provider's own request shaping is exercised in test_embedding_service with a stubbed
+    client, and every retrieval test uses this deterministic stand-in.
+    """
+    from app.services import vector_service
+
+    monkeypatch.setattr(vector_service, "embed_texts", deterministic_embedding)
     yield
 
 

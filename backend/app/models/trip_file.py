@@ -25,6 +25,15 @@ class TripFile(Base):
     parsed_result: Mapped[dict[str, list[str]] | None] = mapped_column(JSON, nullable=True)
     parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     parsed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Indexing is tracked per file and separately from parsing, because the two fail for
+    # different reasons. A scanned page can parse into nothing (skipped), and the
+    # embedding provider can be unreachable (failed) while the text is perfectly good.
+    # Keeping only a "parsed" flag is what would let a document look usable while being
+    # absent from search.
+    index_status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    index_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    indexed_chunks: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     trip: Mapped["Trip"] = relationship(back_populates="files")
